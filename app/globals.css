@@ -1,0 +1,243 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Import highlight.js theme */
+@import "highlight.js/styles/github-dark.css";
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222.2 84% 4.9%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222.2 84% 4.9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 84% 4.9%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 94.1%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    @apply bg-background text-foreground;
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  #__next {
+    height: 100%;
+  }
+}
+
+@layer components {
+  .typing-indicator {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .typing-indicator div {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: currentColor;
+    animation: typing 1.4s infinite ease-in-out;
+  }
+
+  .typing-indicator div:nth-child(1) {
+    animation-delay: -0.32s;
+  }
+
+  .typing-indicator div:nth-child(2) {
+    animation-delay: -0.16s;
+  }
+
+  .typing-indicator div:nth-child(3) {
+    animation-delay: 0s;
+  }
+
+  .typing-indicator div:nth-child(4) {
+    animation-delay: 0.16s;
+  }
+}
+
+@keyframes typing {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Custom scrollbar */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(203 213 225) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: rgb(203 213 225);
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(148 163 184);
+  }
+}
+
+/* Custom markdown styling */
+@layer components {
+  .prose {
+    --tw-prose-headings: theme("colors.slate.900");
+    --tw-prose-links: theme("colors.blue.600");
+    --tw-prose-bold: theme("colors.slate.900");
+    --tw-prose-counters: theme("colors.slate.500");
+    --tw-prose-bullets: theme("colors.slate.300");
+    --tw-prose-hr: theme("colors.slate.200");
+    --tw-prose-quotes: theme("colors.slate.900");
+    --tw-prose-quote-borders: theme("colors.slate.200");
+    --tw-prose-captions: theme("colors.slate.500");
+    --tw-prose-code: theme("colors.slate.900");
+    --tw-prose-pre-code: theme("colors.slate.200");
+    --tw-prose-pre-bg: theme("colors.slate.800");
+    --tw-prose-th-borders: theme("colors.slate.300");
+    --tw-prose-td-borders: theme("colors.slate.200");
+  }
+
+  .dark .prose {
+    --tw-prose-headings: theme("colors.slate.100");
+    --tw-prose-links: theme("colors.blue.400");
+    --tw-prose-bold: theme("colors.slate.100");
+    --tw-prose-counters: theme("colors.slate.400");
+    --tw-prose-bullets: theme("colors.slate.600");
+    --tw-prose-hr: theme("colors.slate.700");
+    --tw-prose-quotes: theme("colors.slate.100");
+    --tw-prose-quote-borders: theme("colors.slate.700");
+    --tw-prose-captions: theme("colors.slate.400");
+    --tw-prose-code: theme("colors.slate.100");
+    --tw-prose-pre-code: theme("colors.slate.200");
+    --tw-prose-pre-bg: theme("colors.slate.900");
+    --tw-prose-th-borders: theme("colors.slate.600");
+    --tw-prose-td-borders: theme("colors.slate.700");
+  }
+}
+
+.typing-indicator {
+  display: inline-block;
+  position: relative;
+  width: 80px;
+  height: 80px;
+}
+
+.typing-indicator div {
+  position: absolute;
+  top: 33px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #3b82f6;
+  animation-timing-function: cubic-bezier(0, 1, 1, 0);
+}
+
+.typing-indicator div:nth-child(1) {
+  left: 8px;
+  animation: typing-indicator1 0.6s infinite;
+}
+
+.typing-indicator div:nth-child(2) {
+  left: 8px;
+  animation: typing-indicator2 0.6s infinite;
+}
+
+.typing-indicator div:nth-child(3) {
+  left: 32px;
+  animation: typing-indicator2 0.6s infinite;
+}
+
+.typing-indicator div:nth-child(4) {
+  left: 56px;
+  animation: typing-indicator3 0.6s infinite;
+}
+
+@keyframes typing-indicator1 {
+  0% {
+    transform: scale(0);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes typing-indicator3 {
+  0% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(0);
+  }
+}
+
+@keyframes typing-indicator2 {
+  0% {
+    transform: translate(0, 0);
+  }
+  100% {
+    transform: translate(24px, 0);
+  }
+}

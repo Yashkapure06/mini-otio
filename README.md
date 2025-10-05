@@ -2,6 +2,8 @@
 
 A Next.js 15 + TypeScript web application that combines web search with AI-powered responses for research assistance.
 
+<img src="./public/main.jpg" alt="Mini Otio Research Assistant Screenshot" width="800" />
+
 ## Features
 
 - **Web Search Integration**: Uses Exa.ai API for real-time web search
@@ -118,6 +120,22 @@ Step-by-step:
 - AI Processing: /api/stream → OpenRouter API with context + query
 - Streaming Response: GPT-3.5-turbo streams tokens back
 - UI Updates: Real-time display with source citations
+
+### What worked Well
+
+- Streaming Implementation: Robust token-by-token streaming with proper error handling
+- API Integration: Clean separation between Exa.ai search and OpenRouter streaming
+- State Management: Zustand provides excellent state persistence and management
+- UI/UX: Modern, responsive design with great user experience
+- Type Safety: Full TypeScript implementation with Zod validation
+- Error Handling: Comprehensive error handling throughout the application
+
+### Challenges Faced
+
+- Streaming Complexity: Managing multiple streaming formats (AI SDK UI vs original format)
+- State Synchronization: Keeping UI in sync with streaming responses
+- API Rate Limits: Managing Exa.ai and OpenRouter API limits
+- Timeout Handling: Ensuring streams complete properly with 30-second timeouts
 
 ## Development
 

@@ -7,6 +7,7 @@ import { TypingIndicator } from "@/components/TypingIndicator";
 import { RelatedQuestions } from "@/components/RelatedQuestions";
 import { MessageActions } from "@/components/MessageActions";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { StreamingText, StreamingTextRef } from "@/components/StreamingText";
 import { BookmarkModal } from "@/components/BookmarkModal";
 import { SourceCitations } from "@/components/SourceCitations";
 import { SearchWithinChat } from "@/components/SearchWithinChat";
@@ -24,7 +25,7 @@ import {
   Search,
   Info,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 export function Chat() {
   const {
@@ -43,6 +44,7 @@ export function Chat() {
   const [showBookmarkModal, setShowBookmarkModal] = useState(false);
   const [selectedMessageForBookmark, setSelectedMessageForBookmark] =
     useState<any>(null);
+  const streamingRefs = useRef<Map<string, StreamingTextRef>>(new Map());
 
   const handleCopy = async (content: string, messageId: string) => {
     try {
@@ -131,16 +133,11 @@ export function Chat() {
         searchResults.results,
         "default",
         (token) => {
+          // Append token to streaming component instead of updating message content
           if (assistantMessageId) {
-            const currentMessage = useAppStore
-              .getState()
-              .messages.find((m) => m.id === assistantMessageId);
-            if (currentMessage) {
-              console.log(
-                "Updating message with token, current content length:",
-                currentMessage.content.length
-              );
-              updateMessage(assistantMessageId, currentMessage.content + token);
+            const streamingRef = streamingRefs.current.get(assistantMessageId);
+            if (streamingRef) {
+              streamingRef.appendToken(token);
             }
           }
         },
@@ -148,6 +145,18 @@ export function Chat() {
           // mark streaming as complete and add sources
           setStreaming(false);
           if (assistantMessageId) {
+            // Get final content from streaming component
+            const streamingRef = streamingRefs.current.get(assistantMessageId);
+            let finalContent = "";
+            if (streamingRef) {
+              finalContent = streamingRef.getContent();
+            }
+
+            // Update message with final content
+            if (finalContent) {
+              updateMessage(assistantMessageId, finalContent);
+            }
+
             updateMessageStreaming(assistantMessageId, false);
             updateMessageSources(
               assistantMessageId,
@@ -204,6 +213,16 @@ export function Chat() {
     }
   };
 
+  // Expose streaming refs to parent components
+  const getStreamingRef = (messageId: string) => {
+    return streamingRefs.current.get(messageId);
+  };
+
+  // Make streaming refs available globally for InputBox (only in browser)
+  if (typeof window !== "undefined") {
+    (window as any).__streamingRefs = streamingRefs.current;
+  }
+
   return (
     <div className="h-full overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6 scrollbar-thin">
       {messages.length === 0 ? (
@@ -255,7 +274,21 @@ export function Chat() {
                     onMouseUp={handleTextSelection}
                   >
                     {message.role === "assistant" ? (
-                      <MarkdownRenderer content={message.content} />
+                      message.isStreaming ? (
+                        <StreamingText
+                          ref={(ref) => {
+                            if (ref) {
+                              streamingRefs.current.set(message.id, ref);
+                            } else {
+                              streamingRefs.current.delete(message.id);
+                            }
+                          }}
+                          content={message.content}
+                          isStreaming={message.isStreaming}
+                        />
+                      ) : (
+                        <MarkdownRenderer content={message.content} />
+                      )
                     ) : (
                       <div className="text-slate-900 dark:text-slate-100 leading-relaxed break-words">
                         {message.content}

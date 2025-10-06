@@ -107,13 +107,14 @@ export function InputBox() {
         searchResults.results,
         selectedStyle,
         (token) => {
-          // update the assistant message with new token
-          if (assistantMessageId) {
-            const currentMessage = useAppStore
-              .getState()
-              .messages.find((m) => m.id === assistantMessageId);
-            if (currentMessage) {
-              updateMessage(assistantMessageId, currentMessage.content + token);
+          // Append token to streaming component instead of updating message content
+          if (assistantMessageId && typeof window !== "undefined") {
+            const streamingRefs = (window as any).__streamingRefs;
+            if (streamingRefs) {
+              const streamingRef = streamingRefs.get(assistantMessageId);
+              if (streamingRef) {
+                streamingRef.appendToken(token);
+              }
             }
           }
         },
@@ -121,6 +122,23 @@ export function InputBox() {
           console.log("Streaming completed for message:", assistantMessageId);
           setStreaming(false);
           if (assistantMessageId) {
+            // Get final content from streaming component
+            let finalContent = "";
+            if (typeof window !== "undefined") {
+              const streamingRefs = (window as any).__streamingRefs;
+              if (streamingRefs) {
+                const streamingRef = streamingRefs.get(assistantMessageId);
+                if (streamingRef) {
+                  finalContent = streamingRef.getContent();
+                }
+              }
+            }
+
+            // Update message with final content
+            if (finalContent) {
+              updateMessage(assistantMessageId, finalContent);
+            }
+
             updateMessageStreaming(assistantMessageId, false);
             updateMessageSources(
               assistantMessageId,

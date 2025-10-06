@@ -5,6 +5,9 @@
 /* Import highlight.js theme */
 @import "highlight.js/styles/github-dark.css";
 
+/* Import highlight styles */
+@import "../styles/highlights.css";
+
 @layer base {
   :root {
     --background: 0 0% 100%;

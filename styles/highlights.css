@@ -1,0 +1,29 @@
+.highlight {
+  background: #f3f4f6;
+  color: #2563eb;
+  border: 1px solid #d1d5db;
+  border-radius: 9999px;
+  padding: 4px 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  display: inline-block;
+  margin: 0 2px;
+}
+
+.highlight:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.dark .highlight {
+  background: #374151;
+  color: #60a5fa;
+  border-color: #4b5563;
+}
+
+.dark .highlight:hover {
+  background: #4b5563;
+  border-color: #6b7280;
+}

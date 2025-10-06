@@ -297,6 +297,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       );
 
       saveChatSessions(updatedSessions);
+
+      // Also save to localStorage as a separate array for easy access
+      const existingHighlights = JSON.parse(
+        localStorage.getItem("app-highlights") || "[]"
+      );
+      const updatedHighlights = [...existingHighlights, newHighlight];
+      localStorage.setItem("app-highlights", JSON.stringify(updatedHighlights));
+
       const newState = { ...state, chatSessions: updatedSessions };
       return {
         ...newState,
@@ -321,6 +329,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       );
 
       saveChatSessions(updatedSessions);
+
+      // Also remove from localStorage
+      const existingHighlights = JSON.parse(
+        localStorage.getItem("app-highlights") || "[]"
+      );
+      const updatedHighlights = existingHighlights.filter(
+        (h: Highlight) => h.id !== id
+      );
+      localStorage.setItem("app-highlights", JSON.stringify(updatedHighlights));
+
       const newState = { ...state, chatSessions: updatedSessions };
       return {
         ...newState,
@@ -626,9 +644,16 @@ export const useAppStore = create<AppState>((set, get) => ({
             if (parsedSessions.length > 0 && !state.currentChatId) {
               newState.currentChatId = parsedSessions[0].id;
             }
+
+            // Load highlights from localStorage
+            const savedHighlights = JSON.parse(
+              localStorage.getItem("app-highlights") || "[]"
+            );
+
             return {
               ...newState,
               ...syncCurrentSessionData(newState),
+              highlights: savedHighlights,
             };
           });
         } catch (error) {

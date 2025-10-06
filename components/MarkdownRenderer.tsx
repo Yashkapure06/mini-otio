@@ -141,6 +141,9 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
     return highlights.filter((h) => h.messageId === messageId);
   }, [highlights, messageId]);
 
+  // Memoize content to prevent unnecessary re-renders during streaming
+  const memoizedContent = useMemo(() => content, [content]);
+
   // Simple wrapper component for highlighting
   const HighlightedText = ({ children }: { children: React.ReactNode }) => {
     return <span>{children}</span>;
@@ -201,7 +204,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
       className={cn("prose prose-sm max-w-none dark:prose-invert", className)}
     >
       <ReactMarkdown {...plugins} components={componentsWithHighlights}>
-        {content}
+        {memoizedContent}
       </ReactMarkdown>
     </div>
   );

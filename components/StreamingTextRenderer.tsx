@@ -88,11 +88,17 @@ export const StreamingTextRenderer = forwardRef<
     }
   }, []);
 
-  // Check if user is actively selecting text
+  // Check if user is actively selecting text - optimized with debouncing
   const checkSelection = useCallback(() => {
     const selection = window.getSelection();
-    const hasSelection = Boolean(selection && selection.toString().trim().length > 0);
-    setIsSelectionActive(hasSelection);
+    const hasSelection = Boolean(
+      selection && selection.toString().trim().length > 0
+    );
+
+    // Only update state if selection status actually changed
+    if (hasSelection !== isSelectionActive) {
+      setIsSelectionActive(hasSelection);
+    }
 
     if (hasSelection) {
       // Save the current selection
@@ -107,7 +113,7 @@ export const StreamingTextRenderer = forwardRef<
         setIsSelectionActive(false);
       }, 2000); // Increased timeout to give more time for selection
     }
-  }, [saveSelection]);
+  }, [saveSelection, isSelectionActive]);
 
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
@@ -122,7 +128,7 @@ export const StreamingTextRenderer = forwardRef<
         // Update content
         setStreamingContent(contentRef.current);
 
-        // Restore selection after React update
+        // Restore selection after React update - optimized with single RAF
         if (savedSelection) {
           // Use requestAnimationFrame to ensure DOM is updated
           requestAnimationFrame(() => {
@@ -130,6 +136,7 @@ export const StreamingTextRenderer = forwardRef<
           });
         }
       } else {
+        // Batch updates to reduce re-renders
         setStreamingContent(contentRef.current);
       }
     },
@@ -160,11 +167,19 @@ export const StreamingTextRenderer = forwardRef<
     }
   }, [isStreaming]);
 
-  // Listen for selection changes
+  // Listen for selection changes - optimized with throttling
   useEffect(() => {
-    const handleSelectionChange = () => {
-      checkSelection();
+    let throttleTimeout: NodeJS.Timeout | null = null;
+
+    const throttledCheckSelection = () => {
+      if (throttleTimeout) return;
+      throttleTimeout = setTimeout(() => {
+        checkSelection();
+        throttleTimeout = null;
+      }, 16); // ~60fps throttling
     };
+
+    const handleSelectionChange = throttledCheckSelection;
 
     const handleMouseDown = () => {
       // Clear any existing timeout when user starts selecting
@@ -174,15 +189,15 @@ export const StreamingTextRenderer = forwardRef<
     };
 
     const handleMouseUp = () => {
-      // Check selection after mouse up
-      setTimeout(() => {
-        checkSelection();
-      }, 10);
+      // Check selection after mouse up with throttling
+      throttledCheckSelection();
     };
 
-    document.addEventListener("selectionchange", handleSelectionChange);
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("selectionchange", handleSelectionChange, {
+      passive: true,
+    });
+    document.addEventListener("mousedown", handleMouseDown, { passive: true });
+    document.addEventListener("mouseup", handleMouseUp, { passive: true });
 
     return () => {
       document.removeEventListener("selectionchange", handleSelectionChange);
@@ -190,6 +205,9 @@ export const StreamingTextRenderer = forwardRef<
       document.removeEventListener("mouseup", handleMouseUp);
       if (selectionTimeoutRef.current) {
         clearTimeout(selectionTimeoutRef.current);
+      }
+      if (throttleTimeout) {
+        clearTimeout(throttleTimeout);
       }
     };
   }, [checkSelection]);

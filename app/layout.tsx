@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+if (process.env.NODE_ENV === "development") {
+  import("react-scan");
+}
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -20,8 +23,3 @@ export default function RootLayout({
     </html>
   );
 }
-
-
-
-
-

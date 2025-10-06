@@ -137,6 +137,12 @@ Step-by-step:
 - API Rate Limits: Managing Exa.ai and OpenRouter API limits
 - Timeout Handling: Ensuring streams complete properly with 30-second timeouts
 
+
+### Suggestions for Otio
+
+- UI is smooth and easy to use.
+- As of now we have allowed for singel user, we can add a new feature for teams
+
 ## Development
 
 - **TypeScript**: Full type safety throughout the application

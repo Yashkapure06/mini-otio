@@ -88,7 +88,58 @@ export function InputBox() {
       );
       const assistantMessageId = assistantMessage?.id || "";
 
-      // seearch with Exa.ai
+      // First, check if this query should use tool calls instead of web search
+      try {
+        const toolCallResponse = await fetch("/api/tool-call", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ query }),
+        });
+
+        if (toolCallResponse.ok) {
+          const toolCallData = await toolCallResponse.json();
+          console.log("Tool call response:", toolCallData);
+
+          if (toolCallData.shouldUseTool && toolCallData.toolResult?.success) {
+            // Handle tool call result
+            const toolResult = toolCallData.toolResult;
+            let responseContent = "";
+
+            if (toolResult.type === "calculator") {
+              responseContent = `**Calculation Result:**\n\nExpression: \`${toolResult.result.expression}\`\nResult: **${toolResult.result.formatted}**`;
+            } else {
+              responseContent = `**Tool Result:**\n\n${JSON.stringify(
+                toolResult.result,
+                null,
+                2
+              )}`;
+            }
+
+            // Update the assistant message with tool result
+            updateMessage(assistantMessageId, responseContent);
+            updateMessageStreaming(assistantMessageId, false);
+            setStreaming(false);
+            setQuery("");
+            setIsSubmitting(false);
+            return;
+          } else if (
+            toolCallData.shouldUseTool &&
+            !toolCallData.toolResult?.success
+          ) {
+            // Tool call failed, show error and fallback to web search
+            console.log("Tool call failed, falling back to web search");
+          }
+        }
+      } catch (toolCallError) {
+        console.log(
+          "Tool call check failed, proceeding with web search:",
+          toolCallError
+        );
+      }
+
+      // If not a tool call, proceed with web search
       const searchResults = await searchWithExa(query);
       const sources = formatSourceCitations(searchResults.results);
 

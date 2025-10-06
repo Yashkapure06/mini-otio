@@ -8,9 +8,22 @@ import { RelatedQuestions } from "@/components/RelatedQuestions";
 import { MessageActions } from "@/components/MessageActions";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { StreamingText, StreamingTextRef } from "@/components/StreamingText";
+import {
+  StreamingTextOptimized,
+  StreamingTextOptimizedRef,
+} from "@/components/StreamingTextOptimized";
+import {
+  StreamingTextRenderer,
+  StreamingTextRendererRef,
+} from "@/components/StreamingTextRenderer";
 import { BookmarkModal } from "@/components/BookmarkModal";
 import { SourceCitations } from "@/components/SourceCitations";
 import { SearchWithinChat } from "@/components/SearchWithinChat";
+import { TextSelectionTooltip } from "@/components/TextSelectionTooltip";
+import {
+  applyHighlightsToElement,
+  addHighlightClickListener,
+} from "@/lib/highlightUtils";
 import {
   Tooltip,
   TooltipContent,
@@ -25,7 +38,7 @@ import {
   Search,
   Info,
 } from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 export function Chat() {
   const {
@@ -44,7 +57,16 @@ export function Chat() {
   const [showBookmarkModal, setShowBookmarkModal] = useState(false);
   const [selectedMessageForBookmark, setSelectedMessageForBookmark] =
     useState<any>(null);
-  const streamingRefs = useRef<Map<string, StreamingTextRef>>(new Map());
+  const streamingRefs = useRef<Map<string, StreamingTextOptimizedRef>>(
+    new Map()
+  );
+
+  // Text selection tooltip state
+  const [showTextTooltip, setShowTextTooltip] = useState(false);
+  const [selectedText, setSelectedText] = useState("");
+  const [selectedMessageId, setSelectedMessageId] = useState("");
+  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+  const selectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleCopy = async (content: string, messageId: string) => {
     try {
@@ -81,6 +103,43 @@ export function Chat() {
   const handleBookmark = (message: any) => {
     setSelectedMessageForBookmark(message);
     setShowBookmarkModal(true);
+  };
+
+  // Text selection tooltip handlers
+  const handleTooltipHighlight = (text: string, messageId: string) => {
+    console.log("Highlighting text:", text, "for message:", messageId);
+    handleHighlight(text, messageId);
+    setShowTextTooltip(false);
+  };
+
+  const handleTooltipBookmark = (text: string, messageId: string) => {
+    // Create a temporary bookmark-like object for the selected text
+    const message = messages.find((m) => m.id === messageId);
+    if (message) {
+      const bookmarkData = {
+        ...message,
+        content: text, // Use selected text as content
+        selectedText: text,
+      };
+      setSelectedMessageForBookmark(bookmarkData);
+      setShowBookmarkModal(true);
+    }
+    setShowTextTooltip(false);
+  };
+
+  const handleTooltipCopy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedMessageId(selectedMessageId);
+      setTimeout(() => setCopiedMessageId(null), 2000);
+    } catch (err) {
+      console.error("Failed to copy text: ", err);
+    }
+    setShowTextTooltip(false);
+  };
+
+  const isTextHighlighted = (text: string, messageId: string) => {
+    return highlights.some((h) => h.messageId === messageId && h.text === text);
   };
 
   const handleRelatedQuestionClick = async (question: string) => {
@@ -152,7 +211,6 @@ export function Chat() {
               finalContent = streamingRef.getContent();
             }
 
-            // Update message with final content
             if (finalContent) {
               updateMessage(assistantMessageId, finalContent);
             }
@@ -197,7 +255,7 @@ export function Chat() {
   const handleTextSelection = () => {
     const selection = window.getSelection();
     if (selection && selection.toString().trim()) {
-      const selectedText = selection.toString().trim();
+      const text = selection.toString().trim();
       const range = selection.getRangeAt(0);
       const messageElement =
         range.commonAncestorContainer.parentElement?.closest(
@@ -207,21 +265,150 @@ export function Chat() {
       if (messageElement) {
         const messageId = messageElement.getAttribute("data-message-id");
         if (messageId) {
-          handleHighlight(selectedText, messageId);
+          // Get the position of the selection
+          const rect = range.getBoundingClientRect();
+          setSelectedText(text);
+          setSelectedMessageId(messageId);
+          setTooltipPosition({
+            x: rect.left + rect.width / 2,
+            y: rect.top,
+          });
+          setShowTextTooltip(true);
         }
+      }
+    } else {
+      // Only hide tooltip if there's actually no selection
+      const currentSelection = window.getSelection();
+      if (!currentSelection || !currentSelection.toString().trim()) {
+        setShowTextTooltip(false);
       }
     }
   };
 
-  // Expose streaming refs to parent components
+  // debounced text selection handler - only for mouseup
+  const debouncedTextSelection = () => {
+    if (selectionTimeoutRef.current) {
+      clearTimeout(selectionTimeoutRef.current);
+    }
+
+    selectionTimeoutRef.current = setTimeout(() => {
+      handleTextSelection();
+    }, 100); // Small delay to ensure selection is complete
+  };
+
+  // handle text selection only on mouseup (when user finishes selecting)
+  const handleMouseUp = (e: React.MouseEvent) => {
+    debouncedTextSelection();
+  };
+
+  // don't show tooltip during selection change (while dragging)
+  const handleSelectionChange = () => {
+    // Only hide tooltip if there's no selection
+    const selection = window.getSelection();
+    if (!selection || !selection.toString().trim()) {
+      setShowTextTooltip(false);
+    }
+  };
+
+  // more responsive selection detection
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // clear any existing tooltip when starting a new selection
+    setShowTextTooltip(false);
+    if (selectionTimeoutRef.current) {
+      clearTimeout(selectionTimeoutRef.current);
+    }
+  };
+
+  // handle highlight click to remove
+  const handleHighlightClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const highlightId = target.getAttribute("data-highlight-id");
+
+    if (highlightId) {
+      e.preventDefault();
+      e.stopPropagation();
+      removeHighlight(highlightId);
+    }
+  };
+
   const getStreamingRef = (messageId: string) => {
     return streamingRefs.current.get(messageId);
   };
 
-  // Make streaming refs available globally for InputBox (only in browser)
   if (typeof window !== "undefined") {
     (window as any).__streamingRefs = streamingRefs.current;
   }
+
+  // apply highlights to all message elements
+  useEffect(() => {
+    const messageElements = document.querySelectorAll("[data-message-id]");
+    messageElements.forEach((element) => {
+      const messageId = element.getAttribute("data-message-id");
+      if (messageId) {
+        applyHighlightsToElement(element as HTMLElement, highlights, messageId);
+        addHighlightClickListener(element as HTMLElement, removeHighlight);
+      }
+    });
+  }, [highlights, removeHighlight]);
+
+  // reapply highlights when streaming content changes
+  useEffect(() => {
+    if (isStreaming) {
+      // a bit delay to ensure DOM is updated with new streaming content
+      const timeoutId = setTimeout(() => {
+        const messageElements = document.querySelectorAll("[data-message-id]");
+        messageElements.forEach((element) => {
+          const messageId = element.getAttribute("data-message-id");
+          if (messageId) {
+            applyHighlightsToElement(
+              element as HTMLElement,
+              highlights,
+              messageId
+            );
+          }
+        });
+      }, 100);
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isStreaming, highlights]);
+
+  // close tooltip when clicking outside and handle selection changes
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showTextTooltip) {
+        // check if click is on the tooltip itself
+        const target = event.target as HTMLElement;
+        const isTooltipClick = target.closest("[data-text-selection-tooltip]");
+
+        if (!isTooltipClick) {
+          const selection = window.getSelection();
+          if (!selection || !selection.toString().trim()) {
+            setShowTextTooltip(false);
+          }
+        }
+      }
+    };
+
+    const handleDocumentSelectionChange = () => {
+      handleSelectionChange();
+    };
+
+    // listen for clicks and selection changes (only to hide tooltip)
+    document.addEventListener("click", handleClickOutside);
+    document.addEventListener("selectionchange", handleDocumentSelectionChange);
+
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+      document.removeEventListener(
+        "selectionchange",
+        handleDocumentSelectionChange
+      );
+      if (selectionTimeoutRef.current) {
+        clearTimeout(selectionTimeoutRef.current);
+      }
+    };
+  }, [showTextTooltip]);
 
   return (
     <div className="h-full overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6 scrollbar-thin">
@@ -271,11 +458,13 @@ export function Chat() {
                 <div className="flex items-start justify-between">
                   <div
                     className="flex-1 min-w-0"
-                    onMouseUp={handleTextSelection}
+                    onMouseDown={handleMouseDown}
+                    onMouseUp={handleMouseUp}
+                    onClick={handleHighlightClick}
                   >
                     {message.role === "assistant" ? (
                       message.isStreaming ? (
-                        <StreamingText
+                        <StreamingTextOptimized
                           ref={(ref) => {
                             if (ref) {
                               streamingRefs.current.set(message.id, ref);
@@ -285,9 +474,15 @@ export function Chat() {
                           }}
                           content={message.content}
                           isStreaming={message.isStreaming}
+                          highlights={highlights}
+                          messageId={message.id}
                         />
                       ) : (
-                        <MarkdownRenderer content={message.content} />
+                        <MarkdownRenderer
+                          content={message.content}
+                          highlights={highlights}
+                          messageId={message.id}
+                        />
                       )
                     ) : (
                       <div className="text-slate-900 dark:text-slate-100 leading-relaxed break-words">
@@ -365,6 +560,20 @@ export function Chat() {
           }}
           content={selectedMessageForBookmark.content}
           messageId={selectedMessageForBookmark.id}
+        />
+      )}
+
+      {/* Text Selection Tooltip */}
+      {showTextTooltip && (
+        <TextSelectionTooltip
+          selectedText={selectedText}
+          messageId={selectedMessageId}
+          position={tooltipPosition}
+          onClose={() => setShowTextTooltip(false)}
+          onHighlight={handleTooltipHighlight}
+          onBookmark={handleTooltipBookmark}
+          onCopy={handleTooltipCopy}
+          isHighlighted={isTextHighlighted(selectedText, selectedMessageId)}
         />
       )}
     </div>

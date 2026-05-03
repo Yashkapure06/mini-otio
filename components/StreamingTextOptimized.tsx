@@ -35,102 +35,106 @@ export const StreamingTextOptimized = forwardRef<
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef("");
   const isInitialMount = useRef(true);
+  const isMountedRef = useRef(true);
   const [streamingContent, setStreamingContent] = useState("");
   const [finalContent, setFinalContent] = useState("");
   const [isSelectionActive, setIsSelectionActive] = useState(false);
-  const selectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const selectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRafRef = useRef<number>(0);
+  const pendingRestoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSelectionRef = useRef<{
     startContainer: Node;
     startOffset: number;
     endContainer: Node;
     endOffset: number;
   } | null>(null);
-  const renderCountRef = useRef(0);
 
-  // Save current selection
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (pendingRafRef.current) cancelAnimationFrame(pendingRafRef.current);
+      if (pendingRestoreTimeoutRef.current) clearTimeout(pendingRestoreTimeoutRef.current);
+      if (selectionTimeoutRef.current) clearTimeout(selectionTimeoutRef.current);
+    };
+  }, []);
+
   const saveSelection = useCallback(() => {
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
       const container = containerRef.current;
       if (container && container.contains(range.commonAncestorContainer)) {
-        const savedSelection = {
+        const saved = {
           startContainer: range.startContainer,
           startOffset: range.startOffset,
           endContainer: range.endContainer,
           endOffset: range.endOffset,
         };
-        lastSelectionRef.current = savedSelection;
-        return savedSelection;
+        lastSelectionRef.current = saved;
+        return saved;
       }
     }
     return null;
   }, []);
 
-  // Restore selection
-  const restoreSelection = useCallback((savedSelection: any) => {
-    if (savedSelection) {
+  const restoreSelection = useCallback(
+    (savedSelection: typeof lastSelectionRef.current) => {
+      if (!savedSelection) return;
       try {
         const selection = window.getSelection();
-        if (selection) {
-          const range = document.createRange();
-          range.setStart(
-            savedSelection.startContainer,
-            savedSelection.startOffset
-          );
-          range.setEnd(savedSelection.endContainer, savedSelection.endOffset);
-          selection.removeAllRanges();
-          selection.addRange(range);
+        if (!selection) return;
+        // Validate nodes are still in the DOM before restoring
+        if (
+          !document.contains(savedSelection.startContainer) ||
+          !document.contains(savedSelection.endContainer)
+        ) {
+          return;
         }
-      } catch (error) {
-        // Selection restoration failed, ignore
-        console.log("Selection restoration failed:", error);
+        const range = document.createRange();
+        range.setStart(savedSelection.startContainer, savedSelection.startOffset);
+        range.setEnd(savedSelection.endContainer, savedSelection.endOffset);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch {
+        // Selection restoration failed — nodes detached or invalid
       }
-    }
-  }, []);
+    },
+    []
+  );
 
-  // Check if user is actively selecting text
   const checkSelection = useCallback(() => {
+    if (!isMountedRef.current) return;
     const selection = window.getSelection();
     const hasSelection = Boolean(selection && selection.toString().trim().length > 0);
     setIsSelectionActive(hasSelection);
 
     if (hasSelection) {
-      // Save the current selection
       saveSelection();
-
-      // Clear any existing timeout
-      if (selectionTimeoutRef.current) {
-        clearTimeout(selectionTimeoutRef.current);
-      }
-      // Set timeout to clear selection state after user stops selecting
+      if (selectionTimeoutRef.current) clearTimeout(selectionTimeoutRef.current);
       selectionTimeoutRef.current = setTimeout(() => {
-        setIsSelectionActive(false);
-      }, 5000); // Increased timeout to give more time for selection
+        if (isMountedRef.current) setIsSelectionActive(false);
+      }, 5000);
     }
   }, [saveSelection]);
 
-  // Expose methods to parent component
   useImperativeHandle(ref, () => ({
     appendToken: (token: string) => {
       contentRef.current += token;
 
-      // If user is actively selecting, preserve selection
       if (isSelectionActive && lastSelectionRef.current) {
-        // Save current selection before update
         const savedSelection = saveSelection();
-
-        // Update content
         setStreamingContent(contentRef.current);
 
-        // Restore selection after React update
         if (savedSelection) {
-          // Use multiple strategies to ensure selection is restored
-          requestAnimationFrame(() => {
+          if (pendingRafRef.current) cancelAnimationFrame(pendingRafRef.current);
+          if (pendingRestoreTimeoutRef.current) clearTimeout(pendingRestoreTimeoutRef.current);
+
+          pendingRafRef.current = requestAnimationFrame(() => {
+            if (!isMountedRef.current) return;
             restoreSelection(savedSelection);
-            // Try again after a short delay
-            setTimeout(() => {
-              restoreSelection(savedSelection);
+            pendingRestoreTimeoutRef.current = setTimeout(() => {
+              if (isMountedRef.current) restoreSelection(savedSelection);
             }, 10);
           });
         }
@@ -141,7 +145,6 @@ export const StreamingTextOptimized = forwardRef<
     getContent: () => contentRef.current,
   }));
 
-  // Handle streaming completion
   useEffect(() => {
     if (!isStreaming && streamingContent) {
       setFinalContent(streamingContent);
@@ -150,7 +153,6 @@ export const StreamingTextOptimized = forwardRef<
     }
   }, [isStreaming, streamingContent]);
 
-  // Handle initial content or content updates when not streaming
   useEffect(() => {
     if (!isStreaming && content && isInitialMount.current) {
       setFinalContent(content);
@@ -158,30 +160,20 @@ export const StreamingTextOptimized = forwardRef<
     }
   }, [content, isStreaming]);
 
-  // Reset initial mount flag when streaming starts
   useEffect(() => {
     if (isStreaming) {
       isInitialMount.current = false;
     }
   }, [isStreaming]);
 
-  // Listen for selection changes
   useEffect(() => {
-    const handleSelectionChange = () => {
-      checkSelection();
-    };
-
+    const handleSelectionChange = () => checkSelection();
     const handleMouseDown = () => {
-      // Clear any existing timeout when user starts selecting
-      if (selectionTimeoutRef.current) {
-        clearTimeout(selectionTimeoutRef.current);
-      }
+      if (selectionTimeoutRef.current) clearTimeout(selectionTimeoutRef.current);
     };
-
     const handleMouseUp = () => {
-      // Check selection after mouse up
       setTimeout(() => {
-        checkSelection();
+        if (isMountedRef.current) checkSelection();
       }, 10);
     };
 
@@ -193,29 +185,16 @@ export const StreamingTextOptimized = forwardRef<
       document.removeEventListener("selectionchange", handleSelectionChange);
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("mouseup", handleMouseUp);
-      if (selectionTimeoutRef.current) {
-        clearTimeout(selectionTimeoutRef.current);
-      }
+      if (selectionTimeoutRef.current) clearTimeout(selectionTimeoutRef.current);
     };
   }, [checkSelection]);
 
-  // Memoize the display content to prevent unnecessary re-renders
-  const displayContent = useMemo(() => {
-    return isStreaming ? streamingContent : finalContent;
-  }, [isStreaming, streamingContent, finalContent]);
+  const displayContent = useMemo(
+    () => (isStreaming ? streamingContent : finalContent),
+    [isStreaming, streamingContent, finalContent]
+  );
 
-  // Use a stable key to prevent unnecessary re-mounts
-  const renderKey = useMemo(() => {
-    return isStreaming ? "streaming" : "final";
-  }, [isStreaming]);
-
-  // Track render count for debugging
-  useEffect(() => {
-    renderCountRef.current += 1;
-    console.log(
-      `StreamingTextOptimized render count: ${renderCountRef.current}, isStreaming: ${isStreaming}, isSelectionActive: ${isSelectionActive}`
-    );
-  });
+  const renderKey = useMemo(() => (isStreaming ? "streaming" : "final"), [isStreaming]);
 
   return (
     <div className={className} ref={containerRef}>

@@ -3,15 +3,11 @@
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
-import { Bookmark, X, Copy, Check } from "lucide-react";
+import { Bookmark, Copy, Check, ChevronRight, Calendar } from "lucide-react";
 import { useState } from "react";
 
 interface BookmarkViewModalProps {
@@ -27,11 +23,7 @@ interface BookmarkViewModalProps {
   } | null;
 }
 
-export function BookmarkViewModal({
-  isOpen,
-  onClose,
-  bookmark,
-}: BookmarkViewModalProps) {
+export function BookmarkViewModal({ isOpen, onClose, bookmark }: BookmarkViewModalProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -40,75 +32,78 @@ export function BookmarkViewModal({
       await navigator.clipboard.writeText(bookmark.content);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy text: ", err);
-    }
+    } catch {}
   };
 
   if (!bookmark) return null;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center space-x-2">
-            <Bookmark className="h-5 w-5 text-blue-500" />
-            <span>{bookmark.title}</span>
-          </DialogTitle>
-          <DialogDescription>
-            Bookmarked on {bookmark.timestamp.toLocaleDateString()} at{" "}
-            {bookmark.timestamp.toLocaleTimeString()}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-6">
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-muted-foreground">
-              Key Points ({bookmark.keyPoints.length})
-            </h3>
-            <div className="grid gap-2">
-              {bookmark.keyPoints.map((point, index) => (
-                <Card key={index} className="p-3">
-                  <div className="flex items-start space-x-3">
-                    <Badge variant="outline" className="mt-0.5">
-                      {index + 1}
-                    </Badge>
-                    <p className="text-sm flex-1">{point}</p>
-                  </div>
-                </Card>
-              ))}
+      <DialogContent className="max-w-3xl w-[95vw] bg-[var(--canvas)] border border-[var(--hairline)] rounded-[var(--rounded-xl)] shadow-2xl p-0 overflow-hidden">
+        {/* Header */}
+        <DialogHeader className="px-8 pt-8 pb-6 border-b border-[var(--hairline)] bg-white/60">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-8 h-8 rounded-full bg-[rgba(204,120,92,0.1)] border border-[rgba(204,120,92,0.2)] flex items-center justify-center">
+              <Bookmark className="h-3.5 w-3.5 text-[#CC785C]" />
+            </div>
+            <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.25em] text-[var(--muted)]">
+              <Calendar className="h-3 w-3" />
+              <span>{new Date(bookmark.timestamp).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}</span>
             </div>
           </div>
+          <DialogTitle className="text-2xl sm:text-3xl font-serif text-[var(--ink)] leading-tight pr-8">
+            {bookmark.title}
+          </DialogTitle>
+        </DialogHeader>
 
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-muted-foreground">
-              Full Content
+        {/* Body */}
+        <div className="flex flex-col sm:flex-row" style={{ maxHeight: "55vh" }}>
+          {/* Key Points Panel */}
+          {bookmark.keyPoints.length > 0 && (
+            <div className="w-full sm:w-64 flex-shrink-0 border-b sm:border-b-0 sm:border-r border-[var(--hairline)] bg-[var(--surface-soft)] p-6 overflow-y-auto scrollbar-none">
+              <h3 className="text-[9px] font-bold uppercase tracking-widest text-[var(--muted-soft)] mb-5">
+                Synthesis Highlights
+              </h3>
+              <div className="space-y-4">
+                {bookmark.keyPoints.map((point, index) => (
+                  <div key={index} className="flex gap-3">
+                    <ChevronRight className="h-3.5 w-3.5 mt-0.5 text-[#CC785C] flex-shrink-0" />
+                    <p className="text-[13px] font-serif italic text-[var(--body)] leading-relaxed">{point}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Full Content */}
+          <div className="flex-1 p-6 sm:p-8 overflow-y-auto scrollbar-none bg-white">
+            <h3 className="text-[9px] font-bold uppercase tracking-widest text-[var(--muted-soft)] mb-6">
+              Full Analysis
             </h3>
-            <Card>
-              <CardContent className="p-6">
-                <MarkdownRenderer content={bookmark.content} />
-              </CardContent>
-            </Card>
+            <div className="prose-editorial">
+              <MarkdownRenderer content={bookmark.content} />
+            </div>
           </div>
         </div>
 
-        <div className="flex justify-end space-x-2 pt-4 border-t">
-          <Button variant="outline" onClick={onClose}>
+        {/* Footer */}
+        <div className="px-8 py-5 bg-[var(--surface-soft)] border-t border-[var(--hairline)] flex items-center justify-between gap-4">
+          <button
+            onClick={onClose}
+            className="px-5 py-2.5 text-[10px] font-bold uppercase tracking-widest text-[var(--muted)] hover:text-[var(--ink)] rounded-[var(--rounded-md)] hover:bg-white/70 transition-all"
+          >
             Close
-          </Button>
-          <Button onClick={handleCopy}>
+          </button>
+          <button
+            onClick={handleCopy}
+            className="btn-primary h-10 px-8 text-[10px]"
+          >
             {copied ? (
-              <>
-                <Check className="h-4 w-4 mr-2" />
-                Copied
-              </>
+              <><Check className="h-3.5 w-3.5" /> Copied</>
             ) : (
-              <>
-                <Copy className="h-4 w-4 mr-2" />
-                Copy Content
-              </>
+              <><Copy className="h-3.5 w-3.5" /> Copy Full Text</>
             )}
-          </Button>
+          </button>
         </div>
       </DialogContent>
     </Dialog>

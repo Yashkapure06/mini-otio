@@ -1,12 +1,10 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { X, Copy, Bookmark, BookmarkCheck, Eye } from "lucide-react";
+import { X, Copy, Bookmark, BookmarkCheck, Eye, Zap } from "lucide-react";
 import { useState } from "react";
 import { BookmarkViewModal } from "@/components/BookmarkViewModal";
+import { cn } from "@/lib/utils";
 
 export function HighlightsSidebar() {
   const { highlights, bookmarks, removeHighlight, removeBookmark } =
@@ -32,169 +30,116 @@ export function HighlightsSidebar() {
     setShowBookmarkModal(true);
   };
 
-  if (highlights.length === 0 && bookmarks.length === 0) {
-    return (
-      <div className="w-80 border-l bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm p-6">
-        <div className="flex items-center space-x-2 mb-6">
-          <Bookmark className="h-5 w-5 text-blue-500" />
-          <h3 className="font-semibold text-lg">Highlights & Bookmarks</h3>
-        </div>
-        <div className="text-center py-8">
-          <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Bookmark className="h-8 w-8 text-slate-400" />
-          </div>
-          <p className="text-muted-foreground text-sm mb-2">
-            No highlights or bookmarks yet
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Select text in responses to save highlights or bookmark entire
-            responses
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="w-80 border-l bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm p-6">
-      <div className="flex items-center space-x-2 mb-6">
-        <Bookmark className="h-5 w-5 text-blue-500" />
-        <h3 className="font-semibold text-lg">Highlights & Bookmarks</h3>
-        <div className="flex space-x-1">
-          {highlights.length > 0 && (
-            <Badge variant="secondary" className="text-xs">
-              {highlights.length} highlights
-            </Badge>
-          )}
-          {bookmarks.length > 0 && (
-            <Badge variant="default" className="text-xs">
-              {bookmarks.length} bookmarks
-            </Badge>
-          )}
+    <div className="w-85 h-full bg-[var(--canvas)] border-l border-[var(--hairline)] flex flex-col">
+      {/* Header */}
+      <div className="p-8 pb-6 border-b border-[var(--hairline)]">
+        <div className="flex items-center gap-3 mb-6">
+          <Bookmark className="h-4 w-4 text-[#CC785C]" />
+          <h3 className="text-[11px] font-bold uppercase tracking-[0.3em] text-[var(--muted)]">Knowledge Vault</h3>
         </div>
+        <h2 className="text-2xl font-serif text-[var(--ink)] leading-tight">
+          Archives & <br />
+          <span className="italic text-[#CC785C]">Curated Insights.</span>
+        </h2>
       </div>
 
-      <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto scrollbar-thin">
-         {bookmarks.length > 0 && (
-          <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-muted-foreground flex items-center space-x-2">
-              <BookmarkCheck className="h-4 w-4" />
-              <span>Bookmarks</span>
-            </h4>
-            {bookmarks.map((bookmark) => (
-              <Card
-                key={bookmark.id}
-                className="p-4 hover:shadow-md transition-shadow bg-white/80 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 group cursor-pointer"
-                onClick={() => handleViewBookmark(bookmark)}
-              >
-                <CardHeader className="p-0 pb-2">
-                  <CardTitle className="text-sm font-medium line-clamp-2">
-                    {bookmark.title}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="space-y-2">
-                    <div className="text-xs text-muted-foreground">
-                      {bookmark.keyPoints.length} key points
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {bookmark.keyPoints.slice(0, 2).map((point, index) => (
-                        <Badge
-                          key={index}
-                          variant="outline"
-                          className="text-xs"
-                        >
-                          {point.length > 20
-                            ? `${point.substring(0, 20)}...`
-                            : point}
-                        </Badge>
-                      ))}
-                      {bookmark.keyPoints.length > 2 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{bookmark.keyPoints.length - 2} more
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-xs text-muted-foreground">
-                        {bookmark.timestamp.toLocaleTimeString()}
-                      </span>
-                      <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleViewBookmark(bookmark);
-                          }}
-                          className="h-6 w-6 p-0 text-slate-500 hover:text-slate-700"
-                        >
-                          <Eye className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeBookmark(bookmark.id);
-                          }}
-                          className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
+      <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-none">
+        {highlights.length === 0 && bookmarks.length === 0 ? (
+          <div className="py-20 text-center space-y-6">
+            <div className="w-16 h-16 bg-[var(--surface-soft)] rounded-full flex items-center justify-center mx-auto border border-[var(--hairline)]">
+              <Zap className="h-6 w-6 text-[var(--muted-soft)]" />
+            </div>
+            <div className="space-y-2">
+              <p className="text-[14px] font-serif italic text-[var(--muted)]">
+                The vault is currently empty.
+              </p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-soft)]">
+                Highlight text to save insights.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Bookmarks Section */}
+            {bookmarks.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--muted-soft)]">Saved Reports</span>
+                  <span className="text-[10px] font-bold text-[#CC785C]">{bookmarks.length}</span>
+                </div>
+                <div className="space-y-3">
+                  {bookmarks.map((bookmark) => (
+                    <div
+                      key={bookmark.id}
+                      onClick={() => handleViewBookmark(bookmark)}
+                      className="card-pro p-5 cursor-pointer group hover:border-[#CC785C]/30"
+                    >
+                      <div className="flex flex-col gap-3">
+                        <h4 className="text-[15px] font-serif font-medium text-[var(--ink)] line-clamp-2 group-hover:text-[#CC785C] transition-colors">
+                          {bookmark.title}
+                        </h4>
+                        <div className="flex items-center gap-4">
+                          <span className="text-[10px] font-bold text-[var(--muted-soft)] uppercase tracking-widest">
+                            {bookmark.keyPoints.length} Points
+                          </span>
+                          <div className="w-1 h-1 rounded-full bg-[var(--hairline)]" />
+                          <span className="text-[10px] font-bold text-[var(--muted-soft)] uppercase tracking-widest">
+                            {new Date(bookmark.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
+                  ))}
+                </div>
+              </div>
+            )}
 
-        {highlights.length > 0 && (
-          <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-muted-foreground flex items-center space-x-2">
-              <Bookmark className="h-4 w-4" />
-              <span>Highlights</span>
-            </h4>
-            {highlights.map((highlight) => (
-              <Card
-                key={highlight.id}
-                className="p-4 hover:shadow-md transition-shadow bg-white/80 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 group"
-              >
-                <div className="flex items-start justify-between">
-                  <p className="text-sm flex-1 leading-relaxed text-slate-700 dark:text-slate-300">
-                    {highlight.text}
-                  </p>
-                  <div className="flex space-x-1 ml-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleCopy(highlight.text, highlight.id)}
-                      className="h-7 w-7 p-0 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                    >
-                      {copiedHighlightId === highlight.id ? (
-                        <span className="text-xs">✓</span>
-                      ) : (
-                        <Copy className="h-3 w-3" />
-                      )}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeHighlight(highlight.id)}
-                      className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
+            {/* Highlights Section */}
+            {highlights.length > 0 && (
+              <div className="space-y-4 pt-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--muted-soft)]">Annotated Fragments</span>
+                  <span className="text-[10px] font-bold text-[#CC785C]">{highlights.length}</span>
                 </div>
-                <div className="mt-2 text-xs text-muted-foreground">
-                  {highlight.timestamp.toLocaleTimeString()}
+                <div className="space-y-3">
+                  {highlights.map((highlight) => (
+                    <div
+                      key={highlight.id}
+                      className="card-pro p-5 group relative"
+                    >
+                      <p className="text-[14px] font-serif italic leading-relaxed text-[var(--body)] mb-4">
+                        "{highlight.text}"
+                      </p>
+                      <div className="flex items-center justify-between border-t border-[var(--hairline)] pt-3">
+                        <span className="text-[9px] font-bold text-[var(--muted-soft)] uppercase tracking-widest">
+                           {new Date(highlight.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => handleCopy(highlight.text, highlight.id)}
+                            className="p-1.5 hover:bg-[var(--surface-soft)] rounded text-[var(--muted)] hover:text-[#CC785C] transition-colors"
+                          >
+                            {copiedHighlightId === highlight.id ? (
+                              <span className="text-[9px] font-bold">COPIED</span>
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => removeHighlight(highlight.id)}
+                            className="p-1.5 hover:bg-[var(--error)]/5 rounded text-[var(--muted)] hover:text-[var(--error)] transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </Card>
-            ))}
-          </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

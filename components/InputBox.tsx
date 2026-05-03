@@ -1,43 +1,50 @@
 "use client";
 
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Send, Grid3X3, Sparkles, ChevronDown } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { 
+  ArrowUp, 
+  ChevronDown, 
+  Sparkles, 
+  BookOpen, 
+  Clock, 
+  Globe,
+  Microscope, 
+  Cpu,
+  Binary
+} from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { messageInputSchema, ResponseStyle } from "@/lib/validators";
 import {
   searchWithExa,
   streamWithAISDK,
-  formatSearchContext,
   formatSourceCitations,
   generateRelatedQuestions,
 } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
-const responseStyles: { value: ResponseStyle; label: string }[] = [
-  { value: "default", label: "Default" },
-  { value: "step-by-step", label: "Step-by-step" },
-  { value: "bullet summary", label: "Bullet Summary" },
-  { value: "explain like I'm 5", label: "Explain Like I'm 5" },
+const STYLE_OPTIONS: { label: string; icon: any; value: ResponseStyle }[] = [
+  { label: "Default", icon: Sparkles, value: "default" },
+  { label: "Summary", icon: BookOpen, value: "bullet summary" },
+  { label: "Step-by-step", icon: Clock, value: "step-by-step" },
+  { label: "Explain simply", icon: Globe, value: "explain like I'm 5" },
 ];
 
 export function InputBox() {
   const [query, setQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<"idle" | "searching" | "verifying" | "extracting">("idle");
+  const [isProMode, setIsProMode] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+
   const {
     selectedStyle,
     setSelectedStyle,
@@ -47,314 +54,266 @@ export function InputBox() {
     updateMessageSources,
     setStreaming,
     addRelatedQuestions,
-    messages,
-    chatSessions,
     createNewChat,
+    isStreaming,
+    pendingQuery,
+    setPendingQuery,
   } = useAppStore();
+
+  const busy = isSubmitting || isStreaming;
+
+  const statusText = (() => {
+    if (phase === "searching") return "Mapping digital knowledge…";
+    if (phase === "verifying") return "Authenticating research papers…";
+    if (phase === "extracting") return "Finalizing synthesis…";
+    if (busy) return "Reasoning…";
+    return "";
+  })();
+
+  const currentStyle = STYLE_OPTIONS.find((o) => o.value === selectedStyle) ?? STYLE_OPTIONS[0];
+
+  const resizeTextarea = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const clamped = Math.max(52, Math.min(el.scrollHeight, 200));
+    el.style.height = `${clamped}px`;
+    el.style.overflowY = el.scrollHeight > 200 ? "auto" : "hidden";
+  }, []);
+
+  useLayoutEffect(() => { resizeTextarea(); }, [query, resizeTextarea]);
+
+  useEffect(() => {
+    if (!pendingQuery) return;
+    const q = pendingQuery;
+    setPendingQuery("");
+    setQuery(q);
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }, [pendingQuery, setPendingQuery]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!query.trim()) return;
+    const currentQuery = query.trim();
+    if (!currentQuery || busy) return;
+    setValidationError(null);
 
     try {
-      const validatedInput = messageInputSchema.parse({
-        query,
-        style: selectedStyle,
-      });
-
-      if (chatSessions.length === 0) {
-        createNewChat();
+      const result = messageInputSchema.safeParse({ query: currentQuery, style: selectedStyle });
+      if (!result.success) {
+        setValidationError(result.error.errors[0]?.message ?? "Invalid input.");
+        return;
       }
+
+      if (!useAppStore.getState().currentChatId) createNewChat();
 
       setIsSubmitting(true);
       setStreaming(true);
+      setPhase("searching");
+      setQuery("");
 
-      addMessage({
-        role: "user",
-        content: query,
-      });
+      addMessage({ role: "user", content: currentQuery });
+      addMessage({ role: "assistant", content: "", isStreaming: true });
 
-      addMessage({
-        role: "assistant",
-        content: "",
-        isStreaming: true,
-      });
-
-      // get the assistant message ID
       const currentMessages = useAppStore.getState().messages;
-      const assistantMessage = currentMessages.find(
-        (m) => m.role === "assistant" && m.isStreaming
-      );
-      const assistantMessageId = assistantMessage?.id || "";
+      const aMsg = currentMessages.find((m) => m.role === "assistant" && m.isStreaming);
+      const aMsgId = aMsg?.id || "";
 
-      // First, check if this query should use tool calls instead of web search
-      try {
-        const toolCallResponse = await fetch("/api/tool-call", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ query }),
-        });
+      // Build full conversation history (all settled messages, excl. the streaming placeholder)
+      const conversationHistory = currentMessages
+        .filter((m) => m.id !== aMsgId && m.content.trim())
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-        if (toolCallResponse.ok) {
-          const toolCallData = await toolCallResponse.json();
-          console.log("Tool call response:", toolCallData);
-
-          if (toolCallData.shouldUseTool && toolCallData.toolResult?.success) {
-            // Handle tool call result
-            const toolResult = toolCallData.toolResult;
-            let responseContent = "";
-
-            if (toolResult.type === "calculator") {
-              responseContent = `**Calculation Result:**\n\nExpression: \`${toolResult.result.expression}\`\nResult: **${toolResult.result.formatted}**`;
-            } else {
-              responseContent = `**Tool Result:**\n\n${JSON.stringify(
-                toolResult.result,
-                null,
-                2
-              )}`;
-            }
-
-            // Update the assistant message with tool result
-            updateMessage(assistantMessageId, responseContent);
-            updateMessageStreaming(assistantMessageId, false);
-            setStreaming(false);
-            setQuery("");
-            setIsSubmitting(false);
-            return;
-          } else if (
-            toolCallData.shouldUseTool &&
-            !toolCallData.toolResult?.success
-          ) {
-            // Tool call failed, show error and fallback to web search
-            console.log("Tool call failed, falling back to web search");
-          }
-        }
-      } catch (toolCallError) {
-        console.log(
-          "Tool call check failed, proceeding with web search:",
-          toolCallError
-        );
-      }
-
-      // If not a tool call, proceed with web search
-      const searchResults = await searchWithExa(query);
+      const searchResults = await searchWithExa(currentQuery);
       const sources = formatSourceCitations(searchResults.results);
 
-      // prepare conversation history
-      const conversationHistory = currentMessages
-        .filter((msg) => !msg.isStreaming)
-        .slice(-10)
-        .map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        }));
-
-      // Stream response using AI SDK
+      setPhase("extracting");
       await streamWithAISDK(
         conversationHistory,
         searchResults.results,
         selectedStyle,
         (token) => {
-          // Append token to streaming component instead of updating message content
-          if (assistantMessageId && typeof window !== "undefined") {
-            const streamingRefs = (window as any).__streamingRefs;
-            if (streamingRefs) {
-              const streamingRef = streamingRefs.get(assistantMessageId);
-              if (streamingRef) {
-                streamingRef.appendToken(token);
-              }
-            }
+          if (aMsgId && typeof window !== "undefined") {
+            (window as any).__streamingRefs?.get(aMsgId)?.appendToken(token);
           }
         },
         async () => {
-          console.log("Streaming completed for message:", assistantMessageId);
           setStreaming(false);
-          if (assistantMessageId) {
-            // Get final content from streaming component
-            let finalContent = "";
-            if (typeof window !== "undefined") {
-              const streamingRefs = (window as any).__streamingRefs;
-              if (streamingRefs) {
-                const streamingRef = streamingRefs.get(assistantMessageId);
-                if (streamingRef) {
-                  finalContent = streamingRef.getContent();
-                }
-              }
-            }
-
-            // Update message with final content
-            if (finalContent) {
-              updateMessage(assistantMessageId, finalContent);
-            }
-
-            updateMessageStreaming(assistantMessageId, false);
-            updateMessageSources(
-              assistantMessageId,
-              sources,
-              searchResults.results
-            );
-
-            const currentMessage = useAppStore
-              .getState()
-              .messages.find((m) => m.id === assistantMessageId);
-            if (currentMessage) {
-              // generate dynamic related questions based on content
-              try {
-                const questions = await generateRelatedQuestions(
-                  currentMessage.content,
-                  searchResults.results,
-                  query
-                );
-                addRelatedQuestions(assistantMessageId, questions);
-              } catch (error) {
-                console.error("Failed to generate related questions:", error);
-                // Fallback to basic questions if generation fails
-                const fallbackQuestions = [
-                  "Can you provide more details about this topic?",
-                  "What are the key benefits of this approach?",
-                  "Are there any potential drawbacks or limitations?",
-                  "How does this compare to alternative methods?",
-                  "What are the practical applications?",
-                ];
-                addRelatedQuestions(assistantMessageId, fallbackQuestions);
-              }
-            }
+          setPhase("idle");
+          if (aMsgId) {
+            const ref = (window as any).__streamingRefs?.get(aMsgId);
+            const finalContent = ref?.getContent?.() ?? "";
+            updateMessage(aMsgId, finalContent);
+            updateMessageStreaming(aMsgId, false);
+            updateMessageSources(aMsgId, sources, searchResults.results);
+            const questions = await generateRelatedQuestions(finalContent, searchResults.results, currentQuery);
+            addRelatedQuestions(aMsgId, questions);
           }
         },
         (error) => {
-          console.error("Streaming error:", error);
           setStreaming(false);
-          if (assistantMessageId) {
-            updateMessage(assistantMessageId, `Error: ${error}`);
-            updateMessageStreaming(assistantMessageId, false);
+          setPhase("idle");
+          if (aMsgId) {
+            updateMessage(aMsgId, `**Error:** ${error}`);
+            updateMessageStreaming(aMsgId, false);
           }
         }
       );
-
-      setQuery("");
-    } catch (error) {
-      console.error("Submit error:", error);
+    } catch (err) {
+      console.error("Submit error:", err);
       setStreaming(false);
+      setPhase("idle");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <div className="bg-white border-t border-slate-200">
-        {/* Top Bar */}
-        <div className="flex items-center justify-between px-3 sm:px-4 py-2 bg-slate-50 border-b border-slate-200">
-          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
-            <div className="flex items-center space-x-1 sm:space-x-2">
-              <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gradient-to-br from-blue-500 to-purple-600 rounded-sm flex items-center justify-center">
-                <Sparkles className="h-2 w-2 sm:h-3 sm:w-3 text-white" />
-              </div>
-              <span className="text-xs sm:text-sm font-medium text-slate-700 truncate">
-                GPT-3.5 Turbo
-              </span>
-            </div>
-            <div className="flex items-center space-x-1 sm:space-x-2 flex-shrink-0">
-              <Badge className="bg-slate-800 text-white text-xs px-1 sm:px-2 py-1 rounded-md">
-                <Grid3X3 className="h-2 w-2 sm:h-3 sm:w-3 mr-1" />
-                <span className="hidden sm:inline">Auto-detect</span>
-                <span className="sm:hidden">Auto</span>
-              </Badge>
-              <Badge
-                variant="outline"
-                className="text-xs px-1 sm:px-2 py-1 rounded-md border-blue-200 text-blue-700 bg-blue-50"
-              >
-                <span className="hidden sm:inline">
-                  {responseStyles.find((s) => s.value === selectedStyle)?.label}
-                </span>
-                <span className="sm:hidden">
-                  {
-                    responseStyles
-                      .find((s) => s.value === selectedStyle)
-                      ?.label.split(" ")[0]
+    <div className="w-full max-w-[800px] mx-auto">
+      {/* Editorial Status Badge */}
+      {busy && (
+        <div className="flex justify-center mb-10 animate-editorial">
+          <div className="bg-white border border-[var(--hairline)] px-6 py-2.5 rounded-full flex items-center gap-4 shadow-xl shadow-[rgba(0,0,0,0.03)]">
+            <div className="w-1.5 h-1.5 rounded-full bg-[#CC785C] animate-pulse" />
+            <span className="text-[10px] font-bold uppercase tracking-[0.35em] text-[var(--muted)]">{statusText}</span>
+          </div>
+        </div>
+      )}
+
+      <form ref={formRef} onSubmit={handleSubmit} className="relative">
+        <div 
+          className={cn(
+            "relative rounded-[32px] border transition-all duration-500",
+            "bg-white/80 backdrop-blur-xl border-[var(--hairline)] shadow-[0_30px_60px_rgba(0,0,0,0.06)]",
+            busy ? "opacity-60 cursor-not-allowed" : "hover:border-[rgba(204,120,92,0.3)] focus-within:border-[#CC785C] focus-within:shadow-[0_30px_70px_rgba(204,120,92,0.12)]"
+          )}
+        >
+          <div className="flex flex-col">
+            <div className="px-10 pt-8">
+              <Textarea
+                ref={textareaRef}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  if (validationError) setValidationError(null);
+                }}
+                onInput={resizeTextarea}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    formRef.current?.requestSubmit();
                   }
-                </span>
-              </Badge>
+                }}
+                placeholder="Initiate a research session..."
+                className="min-h-0 w-full resize-none border-0 bg-transparent px-0 py-2 text-[20px] font-serif italic text-[var(--ink)] leading-relaxed placeholder:text-[var(--muted-soft)] focus:ring-0 focus:outline-none scrollbar-none"
+                style={{ minHeight: 52 }}
+                disabled={busy}
+              />
+            </div>
+
+            <div className="flex items-center justify-between px-10 pb-8 pt-4">
+              <div className="flex items-center gap-5">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="btn-secondary h-11 px-6 min-w-0 bg-white"
+                    >
+                      <currentStyle.icon className="h-4 w-4 text-[#CC785C]" />
+                      <span className="text-[11px] font-bold uppercase tracking-widest">{currentStyle.label}</span>
+                      <ChevronDown className="h-3.5 w-3.5 opacity-30" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    side="top"
+                    sideOffset={12}
+                    className="ddl w-72 p-2.5 bg-white border border-[var(--hairline)] rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] animate-editorial"
+                  >
+                    <div className="px-4 py-2 mb-2 border-b border-[var(--hairline)]">
+                      <span className="text-[9px] font-bold uppercase tracking-[0.3em] text-[var(--muted-soft)]">Synthesis Mode</span>
+                    </div>
+                    {STYLE_OPTIONS.map((opt) => (
+                      <DropdownMenuItem
+                        key={opt.value}
+                        onClick={() => setSelectedStyle(opt.value)}
+                        className={cn(
+                          "flex items-center gap-4 cursor-pointer text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl px-4 py-3.5 transition-all mb-1 last:mb-0 group",
+                          selectedStyle === opt.value
+                            ? "bg-[var(--ink)] text-white shadow-lg"
+                            : "hover:bg-[var(--surface-soft)] text-[var(--muted)] hover:text-[var(--ink)]"
+                        )}
+                      >
+                        <opt.icon className={cn("h-4 w-4", selectedStyle === opt.value ? "text-[#CC785C]" : "text-[var(--muted-soft)] group-hover:text-[#CC785C]")} />
+                        {opt.label}
+                        {selectedStyle === opt.value && (
+                          <div className="ml-auto w-1.5 h-1.5 rounded-full bg-[#CC785C]" />
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <div className="h-6 w-px bg-[var(--hairline)]" />
+                
+                <button
+                  type="button"
+                  onClick={() => setIsProMode(!isProMode)}
+                  className={cn(
+                    "h-11 px-5 rounded-full transition-all border flex items-center justify-center gap-3",
+                    isProMode 
+                      ? "text-[#CC785C] bg-[rgba(204,120,92,0.08)] border-[rgba(204,120,92,0.2)]" 
+                      : "text-[var(--muted-soft)] border-transparent hover:text-[var(--ink)] hover:bg-white/60"
+                  )}
+                  title="Toggle Pro Research Mode"
+                >
+                  <Sparkles className={cn("h-4.5 w-4.5", isProMode ? "fill-current" : "")} />
+                  <span className="text-[10px] font-bold uppercase tracking-[0.2em]">{isProMode ? "Pro Active" : "Pro Mode"}</span>
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                disabled={busy || !query.trim()}
+                className={cn(
+                  "btn-primary h-12 w-12 rounded-full p-0 min-w-0 flex items-center justify-center transition-all duration-500 shadow-xl shadow-[rgba(204,120,92,0.3)]",
+                  busy || !query.trim()
+                    ? "opacity-20 grayscale cursor-not-allowed"
+                    : "hover:scale-110 active:scale-95"
+                )}
+              >
+                {busy ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <ArrowUp className="h-6 w-6 stroke-[3.5px]" />
+                )}
+              </button>
             </div>
           </div>
         </div>
-
-        {/* Main Area */}
-        <form onSubmit={handleSubmit} className="p-3 sm:p-4">
-          <div className="relative bg-white border border-slate-200 rounded-2xl shadow-lg">
-            <Textarea
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="What do you want to know?"
-              className="min-h-[60px] sm:min-h-[80px] max-h-[150px] sm:max-h-[200px] resize-none pr-16 sm:pr-20 pl-3 sm:pl-4 py-3 sm:py-4 text-sm sm:text-base border-0 focus:ring-0 focus:outline-none bg-transparent placeholder:text-slate-400 placeholder:italic"
-              disabled={isSubmitting}
-            />
-
-            <div className="absolute bottom-2 sm:bottom-3 left-2 sm:left-3 flex items-center space-x-1 sm:space-x-2">
-              <DropdownMenu>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 sm:h-8 px-2 sm:px-3 text-slate-400 hover:text-slate-600 hover:bg-slate-100 text-xs sm:text-sm rounded-lg"
-                      >
-                        <Grid3X3 className="h-3 w-3 sm:h-4 sm:w-4 sm:mr-1" />
-                        <span className="hidden sm:inline">Response Style</span>
-                        <span className="sm:hidden">Style</span>
-                        <ChevronDown className="h-2 w-2 sm:h-3 sm:w-3 ml-1" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Select Response Style</p>
-                  </TooltipContent>
-                </Tooltip>
-                <DropdownMenuContent align="start" className="w-48">
-                  <DropdownMenuRadioGroup
-                    value={selectedStyle}
-                    onValueChange={(v) => setSelectedStyle(v as ResponseStyle)}
-                  >
-                    {responseStyles.map((style) => (
-                      <DropdownMenuRadioItem
-                        key={style.value}
-                        value={style.value}
-                      >
-                        {style.label}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="submit"
-                  disabled={isSubmitting || !query.trim()}
-                  className="absolute bottom-2 sm:bottom-3 right-2 sm:right-3 h-6 w-6 sm:h-8 sm:w-8 p-0 bg-slate-100 hover:bg-slate-200 text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-full"
-                  size="sm"
-                >
-                  {isSubmitting ? (
-                    <div className="w-2 h-2 sm:w-3 sm:h-3 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin"></div>
-                  ) : (
-                    <Send className="h-3 w-3 sm:h-4 sm:w-4" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{isSubmitting ? "Sending..." : "Send Message"}</p>
-              </TooltipContent>
-            </Tooltip>
+        
+        {/* Pro Mode Options */}
+        {isProMode && (
+          <div className="absolute -bottom-16 inset-x-0 flex justify-center gap-4 animate-editorial">
+            {[
+              { label: "Deep Analysis", icon: Microscope },
+              { label: "Compute Engine", icon: Cpu },
+              { label: "Logic Gate", icon: Binary },
+            ].map((opt, i) => (
+              <button
+                key={i}
+                type="button"
+                className="bg-white border border-[var(--hairline)] px-6 py-2.5 rounded-full text-[9px] font-bold uppercase tracking-[0.25em] text-[var(--muted)] hover:text-[#CC785C] hover:border-[#CC785C]/40 transition-all flex items-center gap-3 shadow-lg shadow-[rgba(0,0,0,0.04)]"
+              >
+                <opt.icon className="h-4 w-4" />
+                {opt.label}
+              </button>
+            ))}
           </div>
-        </form>
-      </div>
-    </TooltipProvider>
+        )}
+      </form>
+    </div>
   );
 }
+
+

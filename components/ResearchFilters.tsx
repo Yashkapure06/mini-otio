@@ -8,6 +8,7 @@ export interface ResearchFilter {
   id: string;
   label: string;
   type: "source" | "topic" | "confidence" | "date" | "tag";
+  color?: string;
 }
 
 interface ResearchFiltersProps {

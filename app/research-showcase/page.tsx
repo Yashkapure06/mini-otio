@@ -241,7 +241,7 @@ export default function ResearchShowcase() {
           <h2 className="text-section-heading font-display text-cohere-ink mb-8">
             Dashboard & Metrics
           </h2>
-          <ResearchDashboard metrics={mockMetrics} />
+          <ResearchDashboard />
         </section>
 
         {/* Filters & Sidebar */}

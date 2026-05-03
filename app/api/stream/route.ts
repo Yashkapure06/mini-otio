@@ -5,7 +5,6 @@ import { getStylePrompt } from "@/lib/api";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    console.log("Stream API received body:", JSON.stringify(body, null, 2));
     const { query, context, style, messages } = streamRequestSchema.parse(body);
 
     const openRouterApiKey = process.env.OPENROUTER_API_KEY;
@@ -17,24 +16,27 @@ export async function POST(request: NextRequest) {
     }
 
     const stylePrompt = getStylePrompt(style);
-    const systemPrompt = `You are a helpful research assistant. ${stylePrompt}
+    const systemPrompt = `You are OTIO, an expert research assistant that synthesizes information from live web sources into clear, well-cited analysis. ${stylePrompt}
 
-Use the provided web search context to answer the user's question. If the context doesn't contain enough information, say so and provide what you can based on the available information.
+## Your Research Sources
+The following sources were retrieved in real-time for this query. Each source includes its title, URL, key excerpts, and content. Ground your response in these sources.
 
-IMPORTANT: Format your response using Markdown for better readability. Use:
-- **Bold text** for important points
-- *Italic text* for emphasis
-- ## Headings for main sections
-- ### Subheadings for subsections
-- - Bullet points for lists
-- 1. Numbered lists for steps
-- \`code\` for technical terms
-- > Blockquotes for important information
-- [Links](url) for references
-- Tables for structured data
+${context}
 
-Web Search Context:
-${context}`;
+## Response Guidelines
+- **Synthesize**, don't just summarize — connect ideas across sources and draw conclusions.
+- **Cite sources inline** using [Source 1], [Source 2] etc. when referencing specific claims.
+- **Lead with insight** — start with the most important finding, then support it.
+- If sources contradict each other, note the disagreement and explain both perspectives.
+- If the sources don't cover something the user needs, say so explicitly rather than hallucinating.
+
+## Formatting (Markdown)
+- ## Headings for major sections
+- ### Subheadings for sub-points
+- **Bold** for key terms and critical findings
+- > Blockquotes for direct quotes from sources
+- Tables when comparing multiple items
+- Bullet lists for enumerations; numbered lists for steps/sequences`;
 
     const finalMessages = [
       { role: "system", content: systemPrompt },
@@ -43,14 +45,6 @@ ${context}`;
         : [{ role: "user", content: query }]),
     ];
 
-    console.log("Streaming request:", {
-      query,
-      style,
-      contextLength: context.length,
-      messagesCount: finalMessages.length,
-      conversationHistory: messages?.length || 0,
-    });
-
     const response = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
       {
@@ -58,15 +52,15 @@ ${context}`;
         headers: {
           Authorization: `Bearer ${openRouterApiKey}`,
           "Content-Type": "application/json",
-          "HTTP-Referer": "http://localhost:3000",
+          "HTTP-Referer": process.env.OPENROUTER_REFERER ?? "http://localhost:3000",
           "X-Title": "Mini Research Assistant",
         },
         body: JSON.stringify({
-          model: "openai/gpt-3.5-turbo",
+          model: process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini",
           messages: finalMessages,
           stream: true,
-          temperature: 0.7,
-          max_tokens: 2000,
+          temperature: parseFloat(process.env.OPENROUTER_TEMPERATURE ?? "0.7"),
+          max_tokens: parseInt(process.env.OPENROUTER_MAX_TOKENS ?? "2000", 10),
         }),
       }
     );
@@ -74,8 +68,30 @@ ${context}`;
     if (!response.ok) {
       const errorText = await response.text();
       console.error("OpenRouter API error response:", errorText);
-      throw new Error(
-        `OpenRouter API error: ${response.status} ${response.statusText}`
+      let message = `${response.status} ${response.statusText}`;
+      try {
+        const parsed = JSON.parse(errorText) as {
+          error?: { message?: string; code?: number };
+        };
+        if (parsed?.error?.message) {
+          message = parsed.error.message;
+        }
+      } catch {
+        if (errorText.trim()) {
+          message = errorText.slice(0, 800);
+        }
+      }
+
+      const clientStatus =
+        response.status === 401 ||
+        response.status === 402 ||
+        response.status === 429
+          ? response.status
+          : 502;
+
+      return NextResponse.json(
+        { error: message, upstreamStatus: response.status },
+        { status: clientStatus }
       );
     }
 
@@ -94,43 +110,55 @@ ${context}`;
         let buffer = "";
 
         function pump(): Promise<void> {
-          return reader!.read().then(({ done, value }) => {
-            if (done) {
-              controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
-              controller.close();
-              return;
-            }
+          return reader!
+            .read()
+            .then(({ done, value }) => {
+              if (done) {
+                controller.enqueue(
+                  new TextEncoder().encode("data: [DONE]\n\n")
+                );
+                controller.close();
+                return;
+              }
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() || "";
 
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                const data = line.slice(6);
-                if (data === "[DONE]") {
-                  controller.close();
-                  return;
-                }
-
-                try {
-                  const parsed = JSON.parse(data);
-                  const content = parsed.choices?.[0]?.delta?.content;
-                  if (content) {
-                    controller.enqueue(
-                      new TextEncoder().encode(
-                        `data: ${JSON.stringify({ content })}\n\n`
-                      )
-                    );
+              for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                  const data = line.slice(6);
+                  if (data === "[DONE]") {
+                    controller.close();
+                    return;
                   }
-                } catch (e) {
-                  console.error("Failed to parse data object:", e);
+
+                  try {
+                    const parsed = JSON.parse(data);
+                    const content = parsed.choices?.[0]?.delta?.content;
+                    if (content) {
+                      controller.enqueue(
+                        new TextEncoder().encode(
+                          `data: ${JSON.stringify({ content })}\n\n`
+                        )
+                      );
+                    }
+                  } catch (e) {
+                    console.error("Failed to parse data object:", e);
+                  }
                 }
               }
-            }
 
-            return pump();
-          });
+              return pump();
+            })
+            .catch((err) => {
+              console.error("Stream pump error:", err);
+              try {
+                controller.error(err);
+              } catch {
+                // controller already closed
+              }
+            });
         }
 
         return pump();
@@ -146,9 +174,8 @@ ${context}`;
     });
   } catch (error) {
     console.error("Stream API error:", error);
-    return NextResponse.json(
-      { error: "Failed to stream response" },
-      { status: 500 }
-    );
+    const message =
+      error instanceof Error ? error.message : "Failed to stream response";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

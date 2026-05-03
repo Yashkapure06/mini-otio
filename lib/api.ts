@@ -69,6 +69,19 @@ export async function searchWithExa(query: string): Promise<ExaSearchResponse> {
   return response.json();
 }
 
+async function readStreamEndpointError(response: Response): Promise<string> {
+  let message = `Streaming failed (${response.status})`;
+  try {
+    const data = (await response.json()) as { error?: string };
+    if (typeof data?.error === "string" && data.error.trim()) {
+      message = data.error.trim();
+    }
+  } catch {
+    message = response.statusText || message;
+  }
+  return message;
+}
+
 /**
  * Stream with OpenRouter
  * @param query
@@ -90,114 +103,51 @@ export async function streamWithOpenRouter(
   onError: (error: string) => void
 ): Promise<void> {
   try {
-    console.log("Starting streamWithOpenRouter with:", {
-      query,
-      context: context.substring(0, 100) + "...",
-      style,
-    });
-
     const response = await fetch("/api/stream", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query, context, style }),
     });
 
-    console.log(
-      "Stream response status:",
-      response.status,
-      response.statusText
-    );
-
     if (!response.ok) {
-      throw new Error(`Streaming failed: ${response.statusText}`);
+      throw new Error(await readStreamEndpointError(response));
     }
 
     const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("No response body");
-    }
+    if (!reader) throw new Error("No response body");
 
     const decoder = new TextDecoder();
     let buffer = "";
-
-    const timeout = setTimeout(() => {
-      console.log("Stream timeout, calling onComplete");
-      onComplete();
-    }, 30000);
+    const timeout = setTimeout(() => onComplete(), 30000);
 
     while (true) {
       const { done, value } = await reader.read();
-
-      if (done) {
-        clearTimeout(timeout);
-        console.log("Stream reader done, calling onComplete");
-        onComplete();
-        break;
-      }
+      if (done) { clearTimeout(timeout); onComplete(); break; }
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
 
       for (const line of lines) {
-        if (line.trim()) {
-          console.log("Received line:", line);
-        }
-
         if (line.startsWith("0:")) {
-          // AI SDK UI message stream format
           try {
             const data = JSON.parse(line.slice(2));
-            if (data.type === "text-delta" && data.textDelta) {
-              console.log("Sending token:", data.textDelta);
-              onToken(data.textDelta);
-            }
-          } catch (e) {
-            console.log("Failed to parse UI message data:", e);
-          }
-        } else if (
-          line.trim() &&
-          !line.startsWith("0:") &&
-          !line.startsWith("1:") &&
-          !line.startsWith("data: ")
-        ) {
-          console.log("Sending plain text token:", line);
+            if (data.type === "text-delta" && data.textDelta) onToken(data.textDelta);
+          } catch { /* malformed chunk */ }
+        } else if (line.trim() && !line.startsWith("0:") && !line.startsWith("1:") && !line.startsWith("data: ")) {
           onToken(line);
         } else if (line.startsWith("1:")) {
           try {
             const data = JSON.parse(line.slice(2));
-            if (data.type === "finish") {
-              clearTimeout(timeout);
-              console.log("Received finish signal, calling onComplete");
-              onComplete();
-              return;
-            }
-          } catch (e) {
-            console.log("Failed to parse finish signal:", e);
-          }
+            if (data.type === "finish") { clearTimeout(timeout); onComplete(); return; }
+          } catch { /* malformed chunk */ }
         } else if (line.startsWith("data: ")) {
-          // Original streaming format
           const data = line.slice(6);
-          if (data === "[DONE]") {
-            clearTimeout(timeout);
-            console.log("Received [DONE] signal, calling onComplete");
-            onComplete();
-            return;
-          }
-
+          if (data === "[DONE]") { clearTimeout(timeout); onComplete(); return; }
           try {
             const parsed = JSON.parse(data);
-            console.log("Parsed data object:", parsed);
-
-            if (parsed.content) {
-              console.log("Sending content token:", parsed.content);
-              onToken(parsed.content);
-            }
-          } catch (e) {
-            console.log("Failed to parse data object:", e);
-          }
+            if (parsed.content) onToken(parsed.content);
+          } catch { /* malformed chunk */ }
         }
       }
     }
@@ -210,16 +160,28 @@ export function formatSearchContext(results: ExaSearchResult[]): string {
   return results
     .slice(0, 5)
     .map((result, index) => {
-      const author = result.author ? ` by ${result.author}` : "";
-      const date = new Date(result.publishedDate).toLocaleDateString();
+      const author = result.author ? ` | Author: ${result.author}` : "";
+      const date = result.publishedDate
+        ? new Date(result.publishedDate).toLocaleDateString()
+        : "Unknown date";
 
-      return `${index + 1}. ${
-        result.title
-      }${author}\n   Published: ${date}\n   Source: ${
-        result.url
-      }\n   Relevance Score: ${result.score.toFixed(3)}`;
+      const excerpts = result.highlights?.length
+        ? `\n\nKey Excerpts:\n${result.highlights
+            .slice(0, 3)
+            .map((h) => `  > "${h.trim()}"`)
+            .join("\n")}`
+        : "";
+
+      const body = result.text
+        ? `\n\nContent:\n  ${result.text.slice(0, 700).trim()}${result.text.length > 700 ? "…" : ""}`
+        : "";
+
+      return `[Source ${index + 1}] ${result.title}${author}
+  Published: ${date}
+  URL: ${result.url}
+  Relevance: ${(result.score * 100).toFixed(1)}%${excerpts}${body}`;
     })
-    .join("\n\n");
+    .join("\n\n" + "─".repeat(60) + "\n\n");
 }
 
 export function formatSourceCitations(
@@ -300,7 +262,7 @@ export async function generateRelatedQuestions(
  */
 
 export async function streamWithAISDK(
-  messages: any[],
+  messages: Array<{ role: string; content: string }>,
   searchResults: ExaSearchResult[],
   style: string,
   onToken: (token: string) => void,
@@ -309,125 +271,47 @@ export async function streamWithAISDK(
 ): Promise<void> {
   try {
     const context = formatSearchContext(searchResults);
-
-    // query from the last user message, or use a fallback
     const lastUserMessage = messages.filter((msg) => msg.role === "user").pop();
-    const query =
-      lastUserMessage?.content || "Please provide information about this topic";
+    const query = lastUserMessage?.content || "Please provide information about this topic";
 
-    console.log("Starting stream With AISDK:", {
-      query,
-      context: context.substring(0, 100) + "...",
-      style,
-      messagesCount: messages.length,
-      lastUserMessage: lastUserMessage?.content?.substring(0, 50),
-    });
-
-    if (!query.trim()) {
-      throw new Error("No valid query provided");
-    }
+    if (!query.trim()) throw new Error("No valid query provided");
 
     const response = await fetch("/api/stream", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query, context, style }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query,
+        context,
+        style,
+        messages: messages.length > 0 ? messages : undefined,
+      }),
     });
 
-    console.log(
-      "Stream response status:",
-      response.status,
-      response.statusText
-    );
-
-    if (!response.ok) {
-      throw new Error(`Streaming failed: ${response.statusText}`);
-    }
+    if (!response.ok) throw new Error(await readStreamEndpointError(response));
 
     const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("No response body");
-    }
+    if (!reader) throw new Error("No response body");
 
     const decoder = new TextDecoder();
     let buffer = "";
-
-    // Set a timeout to ensure completion
-    const timeout = setTimeout(() => {
-      console.log("Stream timeout, calling onComplete");
-      onComplete();
-    }, 30000);
+    const timeout = setTimeout(() => onComplete(), 30000);
 
     while (true) {
       const { done, value } = await reader.read();
-
-      if (done) {
-        clearTimeout(timeout);
-        console.log("Stream reader done, calling onComplete");
-        onComplete();
-        break;
-      }
+      if (done) { clearTimeout(timeout); onComplete(); break; }
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
 
       for (const line of lines) {
-        if (line.trim()) {
-          console.log("Received line:", line);
-        }
-
-        if (line.startsWith("0:")) {
-          // AI SDK UI message stream format
-          try {
-            const data = JSON.parse(line.slice(2));
-            if (data.type === "text-delta" && data.textDelta) {
-              onToken(data.textDelta);
-            }
-          } catch (e) {
-            console.log("Failed to parse UI message data:", e);
-          }
-        } else if (
-          line.trim() &&
-          !line.startsWith("0:") &&
-          !line.startsWith("1:") &&
-          !line.startsWith("data: ")
-        ) {
-          // Plain text chunks (fallback)
-          onToken(line);
-        } else if (line.startsWith("1:")) {
-          // AI SDK finish signal
-          try {
-            const data = JSON.parse(line.slice(2));
-            if (data.type === "finish") {
-              clearTimeout(timeout);
-              console.log("Received finish signal, calling onComplete");
-              onComplete();
-              return;
-            }
-          } catch (e) {
-            console.log("Failed to parse finish signal:", e);
-          }
-        } else if (line.startsWith("data: ")) {
-          // Original streaming format
+        if (line.startsWith("data: ")) {
           const data = line.slice(6);
-          if (data === "[DONE]") {
-            clearTimeout(timeout);
-            console.log("Received [DONE] signal, calling onComplete");
-            onComplete();
-            return;
-          }
-
+          if (data === "[DONE]") { clearTimeout(timeout); onComplete(); return; }
           try {
             const parsed = JSON.parse(data);
-
-            if (parsed.content) {
-              onToken(parsed.content);
-            }
-          } catch (e) {
-            console.log("Failed to parse data object:", e);
-          }
+            if (parsed.content) onToken(parsed.content);
+          } catch { /* malformed chunk */ }
         }
       }
     }

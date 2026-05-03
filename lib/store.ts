@@ -76,6 +76,12 @@ interface AppState {
   searchQuery: string;
   isSearchOpen: boolean;
   isChatSidebarOpen: boolean;
+  pendingQuery: string;
+  setPendingQuery: (query: string) => void;
+  isDashboardOpen: boolean;
+  toggleDashboard: () => void;
+  dashboardView: 'metrics' | 'archives';
+  setDashboardView: (view: 'metrics' | 'archives') => void;
 
   // Message actions
   addMessage: (message: Omit<Message, "id" | "timestamp">) => void;
@@ -101,7 +107,7 @@ interface AppState {
   removeRelatedQuestions: (messageId: string) => void;
 
   // Chat session actions
-  createNewChat: () => string;
+  createNewChat: (initialQuery?: string) => string;
   switchToChat: (chatId: string) => void;
   deleteChat: (chatId: string) => void;
   updateChatTitle: (chatId: string, title: string) => void;
@@ -167,6 +173,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   searchQuery: "",
   isSearchOpen: false,
   isChatSidebarOpen: false,
+  pendingQuery: "",
+  setPendingQuery: (query) => set({ pendingQuery: query }),
+  isDashboardOpen: false,
+  toggleDashboard: () => set((state) => ({ isDashboardOpen: !state.isDashboardOpen })),
+  dashboardView: 'metrics',
+  setDashboardView: (view) => set({ dashboardView: view }),
 
   addMessage: (message) => {
     const newMessage: Message = {
@@ -407,14 +419,29 @@ export const useAppStore = create<AppState>((set, get) => ({
   addRelatedQuestions: (messageId, questions) => {
     const newRelatedQuestions: RelatedQuestion[] = questions.map(
       (question) => ({
-        id: Math.random().toString(36).substr(2, 9),
+        id: crypto.randomUUID(),
         text: question,
         messageId,
       })
     );
-    set((state) => ({
-      relatedQuestions: [...state.relatedQuestions, ...newRelatedQuestions],
-    }));
+    set((state) => {
+      const { currentChatId, chatSessions } = state;
+      if (!currentChatId) {
+        return { relatedQuestions: [...state.relatedQuestions, ...newRelatedQuestions] };
+      }
+      const updatedSessions = chatSessions.map((chat) =>
+        chat.id === currentChatId
+          ? {
+              ...chat,
+              relatedQuestions: [...chat.relatedQuestions, ...newRelatedQuestions],
+              updatedAt: new Date(),
+            }
+          : chat
+      );
+      saveChatSessions(updatedSessions);
+      const newState = { ...state, chatSessions: updatedSessions };
+      return { ...newState, ...syncCurrentSessionData(newState) };
+    });
   },
 
   removeRelatedQuestions: (messageId) => {
@@ -505,11 +532,11 @@ export const useAppStore = create<AppState>((set, get) => ({
    * @description: This function creates a new chat session, it is used to create a new chat session when the user clicks the new chat button.
    */
 
-  createNewChat: () => {
+  createNewChat: (initialQuery?: string) => {
     const newChatId = crypto.randomUUID();
     const newChat: ChatSession = {
       id: newChatId,
-      title: "New Chat",
+      title: initialQuery ? initialQuery.slice(0, 50) : "New Chat",
       messages: [],
       highlights: [],
       bookmarks: [],
@@ -653,7 +680,6 @@ export const useAppStore = create<AppState>((set, get) => ({
             return {
               ...newState,
               ...syncCurrentSessionData(newState),
-              highlights: savedHighlights,
             };
           });
         } catch (error) {
